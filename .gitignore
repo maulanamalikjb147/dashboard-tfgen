@@ -12,6 +12,7 @@
 *.user
 *.log
 Thumbs.db
+build/
 
 # -----------------------------------------------------------------
 # Bagian Python / Flask (Backend)
