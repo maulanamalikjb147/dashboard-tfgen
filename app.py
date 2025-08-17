@@ -3,10 +3,11 @@ import subprocess
 import threading
 import json
 import re
-import shutil # Library untuk menghapus direktori secara aman
+import shutil
+import time # Impor modul time
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
-from queue import Queue
+from queue import Queue, Empty
 
 # Inisialisasi aplikasi Flask
 app = Flask(__name__, static_folder='build', static_url_path='/')
@@ -18,7 +19,6 @@ CORS(app)
 DB_FILE = 'details_database.json'
 PUBKEY = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+fpCtuUy4J+VQBYvUGDqusj0PGgIKtTmaVMmqHDYdp2spvxat7Rlh/NOefnUqjlUrx7uAgd6gX0ip23bBpTTJa5vvqNNiRtxkqc068yDjaIG1XqZODFlW7uucrfCHeNNxNQTj1hW1CJBVZL4tnxWPP8BQfzxfWQJFmroglvHpTJVXcpbjvrpPrRiypit2u2KWi8xR8dVR/Qf0kndEZHSwW7Ivd0VvgM7DHaxLPjUe0XId4VALIXQKPt6EF88wgc+3uSQOqyYvrpzw+g9QpvJLX/qB7Fwh+9D6tCdQlhIofKi9MeEXMycx9ElqjZ8Z67s+xWxXFlbiyPpjvW7YA0ag78NUMf2KnE8OuY33mO5XZBR9RIpKZ9MkPdZs1EW4StqBl5+LbtwcCvSti0ZgZpndXTvaXgd0jvuRyQ2i9yvkYqReI7Ulf8t8TXXetfbckn0tPd7HKunspdtM7RvqiOlwfySGyIdWI7huAuXV60D0qRg3s8HJl7OuQHmkQnS+748= root@qeveria"
 
-#PUBKEY = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+fpCtuUy4J+VQBYvUGDqusj0PGgIKtTmaVMmqHDYdp2spvxat7Rlh/NOefnUqjlUrx7uAgd6gX0ip23bBpTTJa5vvqNNiRtxkqc068yDjaIG1XqZODFlW7uucrfCHeNNxNQTj1hW1CJBVZL4tnxWPP8BQfzxfWQJFmroglvHpTJVXcpbjvrpPrRiypit2u2KWi8xR8dVR/Qf0kndEZHSwW7Ivd0VvgM7DHaxLPjUe0XId4VALIXQKPt6EF88wgc+3uSQOqyYvrpzw+g9QpvJLX/qB7Fwh+9D6tCdQlhIofKi9MeEXMycx9ElqjZ8Z67s+xWxXFlbiyPpjvW7YA0ag78NUMf2KnE8OuY33mO5XZBR9RIpKZ9MkPdZsEW4StqBl5+LbtwcCvSti0ZgZpndXTvaXgd0jvuRyQ2i9yvkYqReI7Ulf8t8TXXetfbckn0tPd7HKunspdtM7RvqiOlwfySGyIdWI7huAuXV60D0qRg3s8HJl7OuQHmkQnS+748= root@qeveria"
 log_queues = {}
 HOME_DIR = os.path.expanduser('~')
 WORK_DIR = os.path.join(HOME_DIR, 'workdir', 'terraform-for-lab')
@@ -37,28 +37,49 @@ def save_details_db(db):
     with open(DB_FILE, 'w') as f: json.dump(db, f, indent=4)
 
 def get_all_vm_names():
-    """Menjalankan virsh dan mengembalikan sebuah set berisi semua nama VM yang ada."""
     try:
-        result = subprocess.run(['virsh', 'list', '--all', '--name'], capture_output=True, text=True, check=True)
+        result = subprocess.run(['sudo', 'virsh', 'list', '--all', '--name'], capture_output=True, text=True, check=True)
         return set(filter(None, result.stdout.strip().split('\n')))
     except:
         return set()
 
 def stream_command(q_name, command, cwd):
-    """Fungsi inti untuk menjalankan satu perintah dan streaming outputnya."""
     q = log_queues.get(q_name)
-    q.put({'type': 'COMMAND', 'data': f"\n$ cd {cwd}\n$ {' '.join(command)}\n"})
-    process = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    stderr_output = []
-    # Baca stdout dan stderr secara real-time
-    for line in iter(process.stdout.readline, ''): q.put({'type': 'STDOUT', 'data': line})
-    for line in iter(process.stderr.readline, ''):
-        stderr_output.append(line)
-        q.put({'type': 'STDERR', 'data': line})
-    process.stdout.close(); process.stderr.close()
+    if not q:
+        print(f"Antrean log '{q_name}' tidak ditemukan.")
+        return
+
+    q.put({'type': 'COMMAND', 'data': f"$ {' '.join(command)}\n"})
+    
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1
+    )
+
+    def enqueue_output(pipe, log_type):
+        try:
+            for line in iter(pipe.readline, ''):
+                q.put({'type': log_type, 'data': line})
+        finally:
+            pipe.close()
+
+    stdout_thread = threading.Thread(target=enqueue_output, args=(process.stdout, 'STDOUT'))
+    stderr_thread = threading.Thread(target=enqueue_output, args=(process.stderr, 'STDERR'))
+    
+    stdout_thread.start()
+    stderr_thread.start()
+
     return_code = process.wait()
+
+    stdout_thread.join()
+    stderr_thread.join()
+    
     if return_code != 0:
-        raise subprocess.CalledProcessError(return_code, command, output="".join(stderr_output))
+        raise subprocess.CalledProcessError(return_code, command)
 
 # =================================================================
 # Definisi API Endpoints
@@ -77,7 +98,7 @@ def get_os_images():
 def get_instances():
     try:
         details_db = load_details_db()
-        result = subprocess.run(['virsh', 'list', '--all'], capture_output=True, text=True, check=True)
+        result = subprocess.run(['sudo', 'virsh', 'list', '--all'], capture_output=True, text=True, check=True)
         lines = result.stdout.strip().split('\n')
         instances = []
         for line in lines[2:]:
@@ -96,12 +117,12 @@ def get_instance_details(hostname):
     try:
         details_db = load_details_db()
         vm_details = details_db.get(hostname, {})
-        dominfo_raw = subprocess.run(['virsh', 'dominfo', hostname], capture_output=True, text=True).stdout
+        dominfo_raw = subprocess.run(['sudo','virsh', 'dominfo', hostname], capture_output=True, text=True).stdout
         vcpu_match = re.search(r'CPU\(s\):\s+(\d+)', dominfo_raw)
         memory_match = re.search(r'Max memory:\s+(\d+)\s+KiB', dominfo_raw)
         if vcpu_match: vm_details['cpu'] = vcpu_match.group(1)
         if memory_match: vm_details['memory'] = str(int(memory_match.group(1)) // 1024 // 1024)
-        domblk_raw = subprocess.run(['virsh', 'domblklist', hostname], capture_output=True, text=True).stdout
+        domblk_raw = subprocess.run(['sudo','virsh', 'domblklist', hostname], capture_output=True, text=True).stdout
         disk_match = re.search(r'vda\s+(.+)', domblk_raw)
         if disk_match: vm_details['disk_path'] = disk_match.group(1).strip()
         vm_details.setdefault('ip', '-'); vm_details.setdefault('os', '-'); vm_details.setdefault('clusterName', '-')
@@ -142,22 +163,35 @@ def instance_action(hostname):
     if not action in valid_actions:
         return jsonify({"message": "Aksi tidak valid."}), 400
     try:
-        command = ['virsh', action, hostname]
+        command = ['sudo','virsh', action, hostname]
         result = subprocess.run(command, capture_output=True, text=True, check=True)
         return jsonify({"message": f"Instance {hostname} berhasil di-{action}.", "output": result.stdout})
     except subprocess.CalledProcessError as e:
         return jsonify({"message": f"Gagal melakukan aksi {action}", "error": e.stderr}), 500
 
-# =================================================================
-# Logika Proses (Create & Destroy)
-# =================================================================
+@app.route('/api/tools/resize-vm', methods=['POST'])
+def resize_vm_endpoint():
+    data = request.json
+    hostname = data.get('hostname')
+    ip_address = data.get('ip')
+    if not hostname or not ip_address:
+        return jsonify({"message": "Hostname dan IP address dibutuhkan"}), 400
+    log_key = f"resize-{hostname}"
+    log_queues[log_key] = Queue()
+    thread = threading.Thread(target=run_resize_script, args=(log_key, hostname, ip_address))
+    thread.start()
+    return jsonify({"message": f"Proses resize untuk {hostname} telah dimulai."}), 202
 
+
+# =================================================================
+# Logika Proses (Create, Destroy, dan Resize)
+# =================================================================
 def run_creation_commands(name, vm_data_list, config_content, cluster_name):
     q = log_queues.get(name)
     if not q: return
     try:
         config_path = os.path.join(WORK_DIR, f"{name}.txt")
-        q.put({'type': 'INFO', 'data': f"Menulis file konfigurasi ke {config_path}..."})
+        q.put({'type': 'INFO', 'data': f"Menulis file konfigurasi ke {config_path}...\n"})
         with open(config_path, 'w') as f: f.write(config_content)
         
         stream_command(name, ['./not-tfgen.sh', name, f'{name}.txt'], cwd=WORK_DIR)
@@ -170,12 +204,11 @@ def run_creation_commands(name, vm_data_list, config_content, cluster_name):
         for vm in vm_data_list:
             db[vm['hostname']] = { "ip": vm['ip'], "os": vm['os'], "cpu": vm['cpu'], "memory": vm['memory'], "disk": vm['disk'], "clusterName": cluster_name }
         save_details_db(db)
-        q.put({'type': 'INFO', 'data': 'Detail berhasil disimpan.'})
-    except subprocess.CalledProcessError as e:
-        q.put({'type': 'ERROR', 'data': f"Perintah gagal dengan kode exit {e.returncode}."})
-        q.put({'type': 'ERROR', 'data': f"Error Output:\n{e.output}"})
+        q.put({'type': 'SUCCESS', 'data': 'Detail berhasil disimpan.\n'})
+    except subprocess.CalledProcessError:
+        q.put({'type': 'ERROR', 'data': f"Salah satu perintah gagal. Lihat log di atas untuk detail.\n"})
     except Exception as e:
-        q.put({'type': 'ERROR', 'data': f"Terjadi kesalahan tak terduga: {str(e)}"})
+        q.put({'type': 'ERROR', 'data': f"Terjadi kesalahan tak terduga: {str(e)}\n"})
     finally:
         q.put({'type': 'END', 'data': f"Proses untuk {name} selesai."})
 
@@ -187,12 +220,15 @@ def run_destroy_commands(name, is_cluster):
         resource_dir = os.path.join(WORK_DIR, name)
         config_file = os.path.join(WORK_DIR, f"{name}.txt")
         
+        if not os.path.isdir(resource_dir):
+            raise FileNotFoundError(f"Direktori Terraform untuk '{name}' tidak ditemukan.")
+
         stream_command(log_key, ['terraform', 'destroy', '-auto-approve'], cwd=resource_dir)
         
-        q.put({'type': 'INFO', 'data': f"Menghapus direktori {resource_dir}..."})
-        if os.path.isdir(resource_dir): shutil.rmtree(resource_dir)
+        q.put({'type': 'INFO', 'data': f"Menghapus direktori {resource_dir}...\n"})
+        shutil.rmtree(resource_dir)
         
-        q.put({'type': 'INFO', 'data': f"Menghapus file {config_file}..."})
+        q.put({'type': 'INFO', 'data': f"Menghapus file {config_file}...\n"})
         if os.path.exists(config_file): os.remove(config_file)
         
         db = load_details_db()
@@ -202,16 +238,109 @@ def run_destroy_commands(name, is_cluster):
         else:
             if name in db: del db[name]
         save_details_db(db)
-        q.put({'type': 'INFO', 'data': 'Data dari database berhasil dihapus.'})
+        q.put({'type': 'SUCCESS', 'data': 'Data dari database berhasil dihapus.\n'})
+    except subprocess.CalledProcessError:
+        q.put({'type': 'ERROR', 'data': f"Perintah `terraform destroy` gagal.\n"})
     except Exception as e:
-        q.put({'type': 'ERROR', 'data': f"Terjadi kesalahan: {str(e)}"})
+        q.put({'type': 'ERROR', 'data': f"Terjadi kesalahan: {str(e)}\n"})
     finally:
         q.put({'type': 'END', 'data': f"Proses penghancuran untuk {name} selesai."})
+
+
+def run_resize_script(log_key, hostname, ip_address):
+    q = log_queues.get(log_key)
+    if not q: return
+    
+    script_content = f"""
+#!/bin/bash
+set -o pipefail
+log() {{
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
+}}
+log "Memulai proses resize untuk {hostname}"
+INSTANCE_NAME="{hostname}"
+IP_INSTANCE="{ip_address}"
+QCOW2_ORIGINAL="/data/vms/{hostname}-vda.qcow2"
+QCOW2_BAK="/data/vms/{hostname}-vda.qcow2.compress"
+QCOW2_TMP="/data/vms/{hostname}-vda.qcow2.original"
+log "Mengecek status VM..."
+STATE=$(virsh list --all | grep " $INSTANCE_NAME " | awk '{{print $3}}')
+if [ "$STATE" == "running" ]; then
+    log "VM sedang berjalan. Mencoba mematikan (shutdown)..."
+    virsh shutdown $INSTANCE_NAME
+    log "Menunggu VM benar-benar mati (maks. 2 menit)..."
+    for i in {{1..24}}; do
+        STATE=$(virsh list --all | grep " $INSTANCE_NAME " | awk '{{print $3}}')
+        if [[ "$STATE" != "running" ]]; then
+            log "VM berhasil dimatikan."
+            break
+        fi
+        sleep 5
+    done
+    if [[ "$(virsh list --all | grep " $INSTANCE_NAME " | awk '{{print $3}}')" == "running" ]]; then
+        log "VM gagal dimatikan dengan normal, mematikan paksa (destroy)..."
+        virsh destroy $INSTANCE_NAME
+    fi
+else
+    log "VM sudah dalam keadaan mati, melanjutkan proses."
+fi
+log "Langkah 3: Mengkonversi image qcow2..."
+qemu-img convert -O qcow2 "$QCOW2_ORIGINAL" "$QCOW2_BAK"
+if [ $? -ne 0 ]; then log "ERROR: qemu-img convert gagal."; exit 1; fi
+log "Langkah 4: Mengganti file image..."
+mv "$QCOW2_ORIGINAL" "$QCOW2_TMP"
+if [ $? -ne 0 ]; then log "ERROR: Gagal memindahkan file original."; exit 1; fi
+mv "$QCOW2_BAK" "$QCOW2_ORIGINAL"
+if [ $? -ne 0 ]; then log "ERROR: Gagal memindahkan file baru."; mv "$QCOW2_TMP" "$QCOW2_ORIGINAL"; exit 1; fi
+rm "$QCOW2_TMP"
+log "Langkah 5: Menyalakan kembali VM..."
+virsh start $INSTANCE_NAME
+if [ $? -ne 0 ]; then log "ERROR: Gagal menyalakan kembali VM."; exit 1; fi
+log "Menunggu VM boot (30 detik)..."
+sleep 30
+log "Langkah 6: Melakukan pemeriksaan kesehatan (SSH)..."
+SUCCESS=false
+for i in {{1..5}}; do
+  log "Percobaan SSH ke $IP_INSTANCE... ($i/5)"
+  if timeout 5 ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 root@$IP_INSTANCE "echo OK"; then
+    log "Koneksi SSH berhasil pada percobaan ke-$i."
+    SUCCESS=true
+    break
+  fi
+  log "Percobaan SSH ke-$i gagal, mencoba lagi..."
+  sleep 2
+done
+if [ "$SUCCESS" = false ]; then
+  log "ERROR: Pemeriksaan kesehatan SSH gagal setelah 5 percobaan."
+  exit 1
+fi
+END_TIME=$(date +%s)
+DURATION=$((END_TIME - START_TIME))
+DURATION_STR=$(printf '%02d:%02d:%02d' $(($DURATION/3600)) $(($DURATION%3600/60)) $(($DURATION%60)))
+SIZE=$(du -sh "$QCOW2_ORIGINAL" | awk '{{print $1}}')
+MESSAGE="Instance $INSTANCE_NAME berhasil di-resize ✅%0ADuration: $DURATION_STR%0ATotal size instance: $SIZE"
+log "Mengirim notifikasi ke Telegram..."
+curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d chat_id="$CHAT_ID" -d text="$MESSAGE" > /dev/null
+log "--- Proses resize selesai dengan SUKSES ---"
+    """
+    script_path = os.path.join(WORK_DIR, 'script-resize-vm.sh')
+    try:
+        q.put({'type': 'INFO', 'data': f"Membuat skrip resize di {script_path}...\n"})
+        with open(script_path, 'w') as f: f.write(script_content)
+        os.chmod(script_path, 0o755)
+        q.put({'type': 'INFO', 'data': "Menjalankan skrip resize sebagai root...\n"})
+        stream_command(log_key, ['sudo', 'bash', script_path], cwd=WORK_DIR)
+        q.put({'type': 'SUCCESS', 'data': 'Skrip resize berhasil dijalankan.\n'})
+    except subprocess.CalledProcessError:
+        q.put({'type': 'ERROR', 'data': f"Eksekusi skrip gagal. Silakan periksa log di atas.\n"})
+    except Exception as e:
+        q.put({'type': 'ERROR', 'data': f"Terjadi kesalahan: {str(e)}\n"})
+    finally:
+        q.put({'type': 'END', 'data': f"Proses resize untuk {hostname} selesai."})
 
 # =================================================================
 # Endpoint Create & Destroy
 # =================================================================
-
 @app.route('/api/clusters', methods=['POST'])
 def create_cluster_endpoint():
     data = request.json
@@ -261,25 +390,41 @@ def destroy_cluster(cluster_name):
     thread = threading.Thread(target=run_destroy_commands, args=(cluster_name, True))
     thread.start()
     return jsonify({"message": "Proses penghancuran cluster dimulai."}), 202
-
 # =================================================================
 # Endpoint Streaming Log & Serving Frontend
 # =================================================================
 
+# --- FUNGSI INI DIPERBARUI UNTUK MENJADI LEBIH SABAR ---
 @app.route('/api/logs/<log_key>')
 def stream_logs(log_key):
     def generate():
-        q = log_queues.get(log_key)
+        q = None
+        # Tunggu hingga 5 detik sampai antrean log dibuat oleh thread lain
+        for _ in range(50): # Coba 50 kali dengan jeda 0.1 detik
+            q = log_queues.get(log_key)
+            if q is not None:
+                break
+            time.sleep(0.1)
+
         if not q:
-            yield f"data: {{\"type\": \"ERROR\", \"data\": \"Tidak ada proses yang berjalan untuk {log_key}\"}}\n\n"
+            yield f"data: {json.dumps({'type': 'ERROR', 'data': f'Proses untuk {log_key} gagal dimulai atau tidak ditemukan.'})}\n\n"
+            yield f"data: {json.dumps({'type': 'END', 'data': 'Gagal terhubung ke log stream.'})}\n\n"
             return
+        
         while True:
-            log_entry = q.get()
-            import json
-            yield f"data: {json.dumps(log_entry)}\n\n"
-            if log_entry.get('type') == 'END': break
-        if log_key in log_queues: del log_queues[log_key]
+            try:
+                log_entry = q.get(block=True) 
+                yield f"data: {json.dumps(log_entry)}\n\n"
+                if log_entry.get('type') == 'END':
+                    break
+            except Empty:
+                continue
+        
+        if log_key in log_queues:
+            del log_queues[log_key]
+
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
+
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
