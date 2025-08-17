@@ -73,7 +73,7 @@ const CreateCluster = ({ onCreationSuccess }) => {
   };
 
   const addInstance = () => {
-    setInstances([...instances, { hostname: '', ip: '', os: osImages[0] || '', cpu: '2', disk: '50', memory: '4' }]);
+    setInstances([...instances, { hostname: '', ip: '', os: osImages[0] || '', cpu: '', disk: '', memory: '' }]);
   };
 
   const removeInstance = (index) => {
