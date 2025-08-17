@@ -8,8 +8,9 @@ import ClusterList from './components/ClusterList';
 import ResizeQcow2 from './components/ResizeQcow2'; // Impor komponen baru
 import { LuMenu } from 'react-icons/lu';
 
-const SERVER_IP = '170.39.194.242'; // Pastikan IP ini benar
-const API_BASE_URL = `http://${SERVER_IP}:5000`;
+// const SERVER_IP = '170.39.194.242'; // Pastikan IP ini benar
+const API_BASE_URL = '';
+
 
 function App() {
   const [activeView, setActiveView] = useState('instanceList');

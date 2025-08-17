@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { LuPlus, LuTrash2, LuLoaderCircle } from 'react-icons/lu';
 import LogPanel from './LogPanel';
 
-const SERVER_IP = '170.39.194.242';
-const API_BASE_URL = `http://${SERVER_IP}:5000`;
+// const SERVER_IP = '170.39.194.242';
+const API_BASE_URL = '';
+
 
 const CreateCluster = ({ onCreationSuccess }) => {
   const [osImages, setOsImages] = useState([]);

@@ -3,8 +3,9 @@ import LogPanel from './LogPanel';
 import { LuLoaderCircle } from 'react-icons/lu';
 
 
-const SERVER_IP = '170.39.194.242';
-const API_BASE_URL = `http://${SERVER_IP}:5000`;
+// const SERVER_IP = '170.39.194.242';
+const API_BASE_URL = '';
+
 
 const CreateVm = ({ onCreationSuccess }) => {
   const [osImages, setOsImages] = useState([]);

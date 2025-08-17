@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import './IpManager.css'; // Buat file CSS baru jika belum ada
 
-const SERVER_IP = '170.39.194.242';
-const API_BASE_URL = `http://${SERVER_IP}:5000`;
+// const SERVER_IP = '170.39.194.242';
+const API_BASE_URL = '';
+
 
 const IpManager = () => {
   const [ipList, setIpList] = useState([]);

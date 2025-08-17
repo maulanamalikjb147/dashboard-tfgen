@@ -8,8 +8,9 @@ import {
     LuPlay, LuPower, LuRefreshCw, LuTrash2, LuChevronsRight, LuPencil, LuX 
 } from 'react-icons/lu';
 
-const SERVER_IP = '170.39.194.242';
-const API_BASE_URL = `http://${SERVER_IP}:5000`;
+// const SERVER_IP = '170.39.194.242';
+const API_BASE_URL = '';
+
 
 const DetailItem = ({ label, value, onSave, icon, isEditing }) => {
     const [currentValue, setCurrentValue] = useState(value);
