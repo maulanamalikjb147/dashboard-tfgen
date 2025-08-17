@@ -4,82 +4,88 @@ import threading
 import json
 import re
 import shutil
-import time
-from functools import wraps
-from flask import Flask, request, jsonify, Response, stream_with_context, session, send_file
+import time # Impor modul time
+from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 from queue import Queue, Empty
 
 # Inisialisasi aplikasi Flask
 app = Flask(__name__, static_folder='build', static_url_path='/')
-# CORS(app, supports_credentials=True)
-CORS(app, origins=["http://localhost:3000"], supports_credentials=True)
-
+CORS(app)
 
 # =================================================================
 # Konfigurasi & Variabel Global
 # =================================================================
-
-# PENTING: Ganti ini dengan string acak yang sangat rahasia!
-# Anda bisa membuatnya di terminal python dengan:
-# python3 -c 'import os; print(os.urandom(24).hex())'
-app.config['SECRET_KEY'] = 'QY5QqR7diVqrHN5sj14CO'
-
-# Kredensial Pengguna
-USER_EMAIL = "opsculun@qeveria.co.id"
-USER_PASSWORD = "Opsculun147"
+DB_FILE = 'details_database.json'
+PUBKEY = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+fpCtuUy4J+VQBYvUGDqusj0PGgIKtTmaVMmqHDYdp2spvxat7Rlh/NOefnUqjlUrx7uAgd6gX0ip23bBpTTJa5vvqNNiRtxkqc068yDjaIG1XqZODFlW7uucrfCHeNNxNQTj1hW1CJBVZL4tnxWPP8BQfzxfWQJFmroglvHpTJVXcpbjvrpPrRiypit2u2KWi8xR8dVR/Qf0kndEZHSwW7Ivd0VvgM7DHaxLPjUe0XId4VALIXQKPt6EF88wgc+3uSQOqyYvrpzw+g9QpvJLX/qB7Fwh+9D6tCdQlhIofKi9MeEXMycx9ElqjZ8Z67s+xWxXFlbiyPpjvW7YA0ag78NUMf2KnE8OuY33mO5XZBR9RIpKZ9MkPdZs1EW4StqBl5+LbtwcCvSti0ZgZpndXTvaXgd0jvuRyQ2i9yvkYqReI7Ulf8t8TXXetfbckn0tPd7HKunspdtM7RvqiOlwfySGyIdWI7huAuXV60D0qRg3s8HJl7OuQHmkQnS+748= root@qeveria"
 
 log_queues = {}
 HOME_DIR = os.path.expanduser('~')
 WORK_DIR = os.path.join(HOME_DIR, 'workdir', 'terraform-for-lab')
-DB_FILE = 'details_database.json'
-PUBKEY = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+fpCtuUy4J+VQBYvUGDqusj0PGgIKtTmaVMmqHDYdp2spvxat7Rlh/NOefnUqjlUrx7uAgd6gX0ip23bBpTTJa5vvqNNiRtxkqc068yDjaIG1XqZODFlW7uucrfCHeNNxNQTj1hW1CJBVZL4tnxWPP8BQfzxfWQJFmroglvHpTJVXcpbjvrpPrRiypit2u2KWi8xR8dVR/Qf0kndEZHSwW7Ivd0VvgM7DHaxLPjUe0XId4VALIXQKPt6EF88wgc+3uSQOqyYvrpzw+g9QpvJLX/qB7Fwh+9D6tCdQlhIofKi9MeEXMycx9ElqjZ8Z67s+xWxXFlbiyPpjvW7YA0ag78NUMf2KnE8OuY33mO5XZBR9RIpKZ9MkPdZs1EW4StqBl5+LbtwcCvSti0ZgZpndXTvaXgd0jvuRyQ2i9yvkYqReI7Ulf8t8TXXetfbckn0tPd7HKunspdtM7RvqiOlwfySGyIdWI7huAuXV60D0qRg3s8HJl7OuQHmkQnS+748= root@qeveria"
+
 
 # =================================================================
-# Dekorator Autentikasi
+# Fungsi Helper (Pembantu)
 # =================================================================
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not session.get('logged_in'):
-            return jsonify({"message": "Akses ditolak, silahkan login."}), 401
-        return f(*args, **kwargs)
-    return decorated_function
+def load_details_db():
+    if not os.path.exists(DB_FILE): return {}
+    with open(DB_FILE, 'r') as f:
+        try: return json.load(f)
+        except json.JSONDecodeError: return {}
+
+def save_details_db(db):
+    with open(DB_FILE, 'w') as f: json.dump(db, f, indent=4)
+
+def get_all_vm_names():
+    try:
+        result = subprocess.run(['sudo', 'virsh', 'list', '--all', '--name'], capture_output=True, text=True, check=True)
+        return set(filter(None, result.stdout.strip().split('\n')))
+    except:
+        return set()
+
+def stream_command(q_name, command, cwd):
+    q = log_queues.get(q_name)
+    if not q:
+        print(f"Antrean log '{q_name}' tidak ditemukan.")
+        return
+
+    q.put({'type': 'COMMAND', 'data': f"$ {' '.join(command)}\n"})
+    
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1
+    )
+
+    def enqueue_output(pipe, log_type):
+        try:
+            for line in iter(pipe.readline, ''):
+                q.put({'type': log_type, 'data': line})
+        finally:
+            pipe.close()
+
+    stdout_thread = threading.Thread(target=enqueue_output, args=(process.stdout, 'STDOUT'))
+    stderr_thread = threading.Thread(target=enqueue_output, args=(process.stderr, 'STDERR'))
+    
+    stdout_thread.start()
+    stderr_thread.start()
+
+    return_code = process.wait()
+
+    stdout_thread.join()
+    stderr_thread.join()
+    
+    if return_code != 0:
+        raise subprocess.CalledProcessError(return_code, command)
 
 # =================================================================
-# Endpoint Autentikasi
-# =================================================================
-
-@app.route('/api/login', methods=['POST'])
-def login():
-    data = request.json
-    email = data.get('email')
-    password = data.get('password')
-
-    if email == USER_EMAIL and password == USER_PASSWORD:
-        session['logged_in'] = True
-        return jsonify({"message": "Login berhasil!"}), 200
-    else:
-        return jsonify({"message": "Email atau password salah."}), 401
-
-@app.route('/api/check_auth')
-def check_auth():
-    if session.get('logged_in'):
-        return jsonify({"isAuthenticated": True}), 200
-    return jsonify({"isAuthenticated": False}), 401
-
-@app.route('/api/logout', methods=['POST'])
-@login_required
-def logout():
-    session.clear()
-    return jsonify({"message": "Logout berhasil."}), 200
-
-# =================================================================
-# Salin semua endpoint API lama Anda ke sini dan tambahkan @login_required
+# Definisi API Endpoints
 # =================================================================
 
 @app.route('/api/os-images')
-@login_required
 def get_os_images():
     try:
         image_dir = '/data/isos'
@@ -89,34 +95,117 @@ def get_os_images():
         return jsonify({"message": "Gagal mengambil daftar OS image", "error": str(e)}), 500
 
 @app.route('/api/instances')
-@login_required
 def get_instances():
-    # ... (kode get_instances Anda)
+    try:
+        details_db = load_details_db()
+        result = subprocess.run(['sudo', 'virsh', 'list', '--all'], capture_output=True, text=True, check=True)
+        lines = result.stdout.strip().split('\n')
+        instances = []
+        for line in lines[2:]:
+            if not line.strip(): continue
+            parts = line.strip().split()
+            name = parts[1]
+            instance_details = details_db.get(name, {})
+            instance = { 'id': parts[0], 'name': name, 'state': ' '.join(parts[2:]), 'ip': instance_details.get('ip', '-') }
+            instances.append(instance)
+        return jsonify(instances)
+    except Exception as e:
+        return jsonify({"message": "Gagal mengambil daftar instance", "error": str(e)}), 500
+
+@app.route('/api/instances/<hostname>')
+def get_instance_details(hostname):
+    try:
+        details_db = load_details_db()
+        vm_details = details_db.get(hostname, {})
+        dominfo_raw = subprocess.run(['sudo','virsh', 'dominfo', hostname], capture_output=True, text=True).stdout
+        vcpu_match = re.search(r'CPU\(s\):\s+(\d+)', dominfo_raw)
+        memory_match = re.search(r'Max memory:\s+(\d+)\s+KiB', dominfo_raw)
+        if vcpu_match: vm_details['cpu'] = vcpu_match.group(1)
+        if memory_match: vm_details['memory'] = str(int(memory_match.group(1)) // 1024 // 1024)
+        domblk_raw = subprocess.run(['sudo','virsh', 'domblklist', hostname], capture_output=True, text=True).stdout
+        disk_match = re.search(r'vda\s+(.+)', domblk_raw)
+        if disk_match: vm_details['disk_path'] = disk_match.group(1).strip()
+        vm_details.setdefault('ip', '-'); vm_details.setdefault('os', '-'); vm_details.setdefault('clusterName', '-')
+        return jsonify(vm_details)
+    except Exception as e:
+        return jsonify({"message": f"Gagal mengambil detail untuk {hostname}", "error": str(e)}), 500
+
+@app.route('/api/instances/details', methods=['POST'])
+def update_instance_details():
+    data = request.json
+    hostname, details_to_update = data.get('hostname'), data.get('details')
+    if not hostname or not details_to_update: return jsonify({"message": "Hostname dan details dibutuhkan"}), 400
+    try:
+        db = load_details_db()
+        if hostname not in db: db[hostname] = {}
+        db[hostname].update(details_to_update)
+        save_details_db(db)
+        return jsonify({"message": f"Detail untuk {hostname} berhasil diperbarui."})
+    except Exception as e:
+        return jsonify({"message": "Gagal memperbarui detail", "error": str(e)}), 500
+
+@app.route('/api/clusters')
+def get_clusters():
+    db = load_details_db()
+    clusters = {}
+    for hostname, details in db.items():
+        cluster_name = details.get('clusterName', '-')
+        if cluster_name == '-': continue
+        if cluster_name not in clusters: clusters[cluster_name] = []
+        clusters[cluster_name].append(hostname)
+    cluster_list = [{"name": name, "instances": instances} for name, instances in clusters.items()]
+    return jsonify(cluster_list)
+
+@app.route('/api/instances/<hostname>/action', methods=['POST'])
+def instance_action(hostname):
+    action = request.json.get('action')
+    valid_actions = ['start', 'shutdown', 'reboot']
+    if not action in valid_actions:
+        return jsonify({"message": "Aksi tidak valid."}), 400
+    try:
+        command = ['sudo','virsh', action, hostname]
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        return jsonify({"message": f"Instance {hostname} berhasil di-{action}.", "output": result.stdout})
+    except subprocess.CalledProcessError as e:
+        return jsonify({"message": f"Gagal melakukan aksi {action}", "error": e.stderr}), 500
+
+@app.route('/api/tools/resize-vm', methods=['POST'])
+def resize_vm_endpoint():
+    data = request.json
+    hostname = data.get('hostname')
+    ip_address = data.get('ip')
+    if not hostname or not ip_address:
+        return jsonify({"message": "Hostname dan IP address dibutuhkan"}), 400
+    log_key = f"resize-{hostname}"
+    log_queues[log_key] = Queue()
+    thread = threading.Thread(target=run_resize_script, args=(log_key, hostname, ip_address))
+    thread.start()
+    return jsonify({"message": f"Proses resize untuk {hostname} telah dimulai."}), 202
+
+# ... (Salin semua fungsi run_creation_commands, run_destroy_commands, dan run_resize_script Anda di sini)
+
+# =================================================================
+# Endpoint Create & Destroy
+# =================================================================
+# ... (Salin semua endpoint create dan destroy Anda di sini)
+
+# =================================================================
+# Endpoint Streaming Log & Serving Frontend
+# =================================================================
+
+@app.route('/api/logs/<log_key>')
+def stream_logs(log_key):
+    # ... (kode stream_logs Anda)
     pass
 
-# ... Tambahkan @login_required ke semua endpoint lainnya ...
-# /api/instances/<hostname>
-# /api/instances/details
-# /api/clusters
-# /api/instances/<hostname>/action
-# /api/tools/resize-vm
-# /api/clusters (POST)
-# /api/vms (POST)
-# /api/instances/<hostname> (DELETE)
-# /api/clusters/<cluster_name> (DELETE)
-
-
-# =================================================================
-# Endpoint Frontend
-# =================================================================
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve(path):
     if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
-        return send_file(os.path.join(app.static_folder, path))
+        return app.send_static_file(path)
     else:
-        return send_file(os.path.join(app.static_folder, 'index.html'))
-        
+        return app.send_static_file('index.html')
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
