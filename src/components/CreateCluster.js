@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { LuPlus, LuTrash2, LuLoaderCircle } from 'react-icons/lu';
-import LogPanel from './LogPanel';
+import React, { useState, useEffect, useRef } from 'react';
+import { LuPlus, LuTrash2 } from 'react-icons/lu';
 
+// PENTING: Ganti IP ini dengan IP publik server Anda
 const SERVER_IP = '170.39.194.242';
 const API_BASE_URL = `http://${SERVER_IP}:5000`;
 
@@ -13,7 +13,7 @@ const CreateCluster = ({ onCreationSuccess }) => {
   ]);
   const [isCreating, setIsCreating] = useState(false);
   const [logs, setLogs] = useState([]);
-  const [activeLogKey, setActiveLogKey] = useState(null);
+  const logsEndRef = useRef(null);
 
   useEffect(() => {
     const fetchOsImages = async () => {
@@ -37,49 +37,33 @@ const CreateCluster = ({ onCreationSuccess }) => {
     fetchOsImages();
   }, []);
 
+  const scrollToBottom = () => {
+    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(scrollToBottom, [logs]);
+
   useEffect(() => {
-    if (!activeLogKey) return;
-    
-    let isFirstMessage = true;
-    const eventSource = new EventSource(`${API_BASE_URL}/api/logs/${activeLogKey}`);
-    
+    if (!isCreating || !clusterName) return;
+    const eventSource = new EventSource(`${API_BASE_URL}/api/vms/logs/${clusterName}`);
     eventSource.onmessage = (event) => {
       const logData = JSON.parse(event.data);
-
-      if (isFirstMessage) {
-        setLogs([logData]);
-        isFirstMessage = false;
-      } else {
-        setLogs(prevLogs => [...prevLogs, logData]);
-      }
-
+      setLogs(prevLogs => [...prevLogs, logData]);
       if (logData.type === 'END') {
         setIsCreating(false);
-        setActiveLogKey(null);
         eventSource.close();
-        setTimeout(() => {
-          setLogs(currentLogs => {
-              const hasError = currentLogs.some(l => l.type === 'ERROR' || l.type === 'STDERR');
-              if (onCreationSuccess && !hasError) {
-                onCreationSuccess();
-              }
-              return currentLogs;
-          });
-        }, 200);
+        if (onCreationSuccess && !logs.some(l => l.type === 'ERROR')) {
+          onCreationSuccess();
+        }
       }
     };
-    
     eventSource.onerror = () => {
       setLogs(prev => [...prev, { type: 'ERROR', data: 'Koneksi ke server log terputus.' }]);
       setIsCreating(false);
-      setActiveLogKey(null);
       eventSource.close();
     };
-
-    return () => {
-      eventSource.close();
-    };
-  }, [activeLogKey, onCreationSuccess]);
+    return () => eventSource.close();
+  }, [isCreating, clusterName, onCreationSuccess, logs]);
 
   const handleInstanceChange = (index, e) => {
     const { name, value } = e.target;
@@ -89,7 +73,7 @@ const CreateCluster = ({ onCreationSuccess }) => {
   };
 
   const addInstance = () => {
-    setInstances([...instances, { hostname: '', ip: '', os: osImages[0] || '', cpu: '2', disk: '50', memory: '4' }]);
+    setInstances([...instances, { hostname: '', ip: '', os: osImages[0] || '', cpu: '', disk: '', memory: '' }]);
   };
 
   const removeInstance = (index) => {
@@ -99,9 +83,8 @@ const CreateCluster = ({ onCreationSuccess }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLogs([]);
     setIsCreating(true);
-    setActiveLogKey(clusterName);
-
     try {
       const response = await fetch(`${API_BASE_URL}/api/clusters`, {
         method: 'POST',
@@ -110,14 +93,21 @@ const CreateCluster = ({ onCreationSuccess }) => {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.message);
-      // Biarkan log pertama ditangani oleh EventSource
+      setLogs([{ type: 'INFO', data: result.message }]);
     } catch (error) {
       setLogs([{ type: 'ERROR', data: error.message }]);
       setIsCreating(false);
-      setActiveLogKey(null);
     }
   };
   
+  const renderLogLine = (log, index) => {
+    let color = '#d1d5db';
+    if (log.type === 'STDERR' || log.type === 'ERROR') color = '#ef4444';
+    if (log.type === 'COMMAND') color = '#eab308';
+    if (log.type === 'END' || log.type === 'START') color = '#22c55e';
+    return <p key={index} style={{ color, margin: 0, whiteSpace: 'pre-wrap' }}>{log.data}</p>;
+  };
+
   return (
     <div>
       <div className="content-header"><h1>Create VM Cluster</h1></div>
@@ -126,16 +116,19 @@ const CreateCluster = ({ onCreationSuccess }) => {
           <label htmlFor="clusterName">Cluster Name</label>
           <input type="text" id="clusterName" value={clusterName} onChange={(e) => setClusterName(e.target.value)} required disabled={isCreating} />
         </div>
+
         {instances.map((instance, index) => (
           <div key={index} className="cluster-instance-form" style={{border: '1px solid #ddd', padding: '1.5rem', marginBottom: '1.5rem', borderRadius: '8px', backgroundColor: '#fdfdfd'}}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3>Instance #{index + 1}</h3>
               {instances.length > 1 && (
-                <button type="button" className="action-btn danger" onClick={() => removeInstance(index)} disabled={isCreating}>
+                <button type="button" className="btn-icon" onClick={() => removeInstance(index)} disabled={isCreating} style={{background: 'none', border: 'none', cursor: 'pointer', color: '#dc3545'}}>
                   <LuTrash2 size={20} />
                 </button>
               )}
             </div>
+            
+            {/* ---> FORM LENGKAP DI SINI <--- */}
             <div className="form-group">
               <label>Hostname</label>
               <input type="text" name="hostname" value={instance.hostname} onChange={(e) => handleInstanceChange(index, e)} required disabled={isCreating} />
@@ -173,25 +166,25 @@ const CreateCluster = ({ onCreationSuccess }) => {
             </div>
           </div>
         ))}
+        
         <div style={{display: 'flex', gap: '1rem'}}>
           <button type="button" className="btn btn-secondary" onClick={addInstance} disabled={isCreating} style={{display: 'flex', alignItems: 'center'}}>
             <LuPlus style={{ marginRight: '8px' }} /> Add More Instance
           </button>
           <button type="submit" className="btn btn-primary" disabled={isCreating}>
-            {isCreating ? (
-              <>
-                <LuLoaderCircle className="spin" style={{ marginRight: '8px' }} />
-                Creating Cluster...
-              </>
-            ) : (
-              'Create Cluster'
-            )}
+            {isCreating ? 'Creating Cluster...' : 'Create Cluster'}
           </button>
         </div>
       </form>
 
       {logs.length > 0 && (
-        <LogPanel logs={logs} title={`Creation Logs for ${activeLogKey}`} />
+        <div className="logs-container" style={{ backgroundColor: '#1f2937', color: '#f9fafb', padding: '1rem', marginTop: '2rem', borderRadius: '8px', fontFamily: 'monospace', maxHeight: '400px', overflowY: 'auto' }}>
+          <h3>Creation Logs for {clusterName}</h3>
+          <div>
+            {logs.map(renderLogLine)}
+            <div ref={logsEndRef} />
+          </div>
+        </div>
       )}
     </div>
   );

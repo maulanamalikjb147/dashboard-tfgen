@@ -98,21 +98,3 @@
 .app-container.sidebar-collapsed .menu-label {
   opacity: 0;
 }
-
-.sidebar-menu-header {
-  padding: 1.5rem 1.5rem 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #6c757d;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  white-space: nowrap;
-  opacity: 1;
-  transition: opacity 0.2s;
-}
-
-.app-container.sidebar-collapsed .sidebar-menu-header {
-  opacity: 0;
-  padding: 1.5rem 0 0.5rem;
-  text-align: center;
-}

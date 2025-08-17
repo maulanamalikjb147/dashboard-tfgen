@@ -4,26 +4,26 @@ import Sidebar from './components/Sidebar';
 import InstanceList from './components/InstanceList';
 import CreateVm from './components/CreateVm';
 import CreateCluster from './components/CreateCluster';
+// import IpManager from './components/IpManager'; // Dihapus
 import ClusterList from './components/ClusterList';
-import ResizeQcow2 from './components/ResizeQcow2'; // Impor komponen baru
 import { LuMenu } from 'react-icons/lu';
-
-const SERVER_IP = '170.39.194.242'; // Pastikan IP ini benar
-const API_BASE_URL = `http://${SERVER_IP}:5000`;
 
 function App() {
   const [activeView, setActiveView] = useState('instanceList');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
+  // State untuk data instance tetap di sini untuk dibagikan ke komponen lain jika perlu
   const [instances, setInstances] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Fungsi untuk mengambil data, bisa dipanggil dari mana saja
   const fetchInstances = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/instances`);
+      // Ganti URL ini dengan endpoint API Anda
+      const response = await fetch('http://localhost:8080/api/instances');
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -37,15 +37,18 @@ function App() {
     }
   }, []);
 
+  // Mengambil data saat komponen pertama kali dimuat
   useEffect(() => {
     fetchInstances();
   }, [fetchInstances]);
 
+  // Fungsi ini dipanggil setelah VM/Cluster berhasil dibuat
   const handleCreationSuccess = () => {
-    fetchInstances();
+    fetchInstances(); // Ambil data terbaru
     setActiveView('instanceList');
   };
 
+  // Fungsi renderView sekarang tanpa IpManager
   const renderView = () => {
     const commonProps = {
       instances,
@@ -60,11 +63,10 @@ function App() {
         return <CreateCluster onCreationSuccess={handleCreationSuccess} />;
       case 'clusterList':
         return <ClusterList />;
-      // --- TAMBAHKAN CASE BARU UNTUK RESIZE VM ---
-      case 'resizeVm':
-        return <ResizeQcow2 instances={instances} />;
+      // case 'ipManager' sudah dihapus
       case 'instanceList':
       default:
+        // Oper fungsi fetchInstances agar tombol Refresh bisa berfungsi
         return <InstanceList {...commonProps} onRefresh={fetchInstances} />;
     }
   };
