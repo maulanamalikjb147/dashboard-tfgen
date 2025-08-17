@@ -12,7 +12,9 @@ from queue import Queue, Empty
 
 # Inisialisasi aplikasi Flask
 app = Flask(__name__, static_folder='build', static_url_path='/')
-CORS(app, supports_credentials=True)
+# CORS(app, supports_credentials=True)
+CORS(app, origins=["http://localhost:3000"], supports_credentials=True)
+
 
 # =================================================================
 # Konfigurasi & Variabel Global
