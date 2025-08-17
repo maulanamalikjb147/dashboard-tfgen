@@ -1,0 +1,43 @@
+/* Styling untuk area log */
+.log-panel-container {
+  margin-top: 2rem;
+  border-top: 1px solid #eee;
+  padding-top: 1.5rem;
+}
+
+.log-panel-title {
+  font-size: 1.25rem;
+  font-weight: bold;
+  margin-bottom: 1rem;
+  color: #333;
+}
+
+.log-panel-output {
+  background-color: #2d2d2d; /* Warna terminal gelap */
+  color: #f0f0f0; /* Warna teks terang default */
+  font-family: 'Courier New', Courier, monospace;
+  padding: 1rem;
+  border-radius: 4px;
+  height: 350px;
+  overflow-y: auto; /* Membuat bisa di-scroll */
+  white-space: pre-wrap; /* Agar teks tidak keluar dari box */
+  word-wrap: break-word;
+  font-size: 0.9rem;
+}
+
+.log-line {
+  line-height: 1.5;
+}
+
+/* Pewarnaan teks berdasarkan tipe log */
+.log-info {
+  color: #f0f0f0; /* Putih keabuan */
+}
+
+.log-error {
+  color: #ff6b6b; /* Merah */
+}
+
+.log-success {
+  color: #6bcb77; /* Hijau */
+}

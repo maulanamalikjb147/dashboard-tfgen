@@ -1,23 +1,93 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# =================================================================
+# File .gitignore untuk Proyek Gabungan React + Python (Flask)
+# =================================================================
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.js
-
-# testing
-/coverage
-
-# production
-/build
-
-# misc
+# -----------------------------------------------------------------
+# Abaikan file umum dari Sistem Operasi dan Editor Kode
+# -----------------------------------------------------------------
 .DS_Store
+.vscode/
+.idea/
+*.suo
+*.user
+*.log
+Thumbs.db
+
+# -----------------------------------------------------------------
+# Bagian Python / Flask (Backend)
+# -----------------------------------------------------------------
+
+# Direktori Virtual Environment
+# Ganti 'venv' jika Anda menggunakan nama lain (misal: .venv, env)
+venv/
+.venv/
+env/
+ENV/
+
+# File cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# File database lokal
+# Sangat penting untuk tidak memasukkan database ke Git
+details_database.json
+
+# File-file yang dihasilkan oleh package manager Python
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+pip-selfcheck.json
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+
+# -----------------------------------------------------------------
+# Bagian React (Frontend)
+# -----------------------------------------------------------------
+
+# Folder dependensi utama, ini wajib diabaikan
+node_modules/
+
+# Folder hasil build produksi
+build/
+dist/
+
+# File log dan laporan error
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# File environment lokal yang berisi kunci API atau rahasia
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# -----------------------------------------------------------------
+# Bagian Terraform (jika digunakan)
+# -----------------------------------------------------------------
+
+# File state lokal Terraform, ini berisi informasi sensitif
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# File log crash
+crash.log
+crash.*.log
+
+# File variabel lokal yang tidak boleh dibagikan
+*.tfvars.json
+*.auto.tfvars
+
+# Abaikan file konfigurasi Terraform yang digenerate oleh skrip Anda
+# Ganti 'nama-vm.txt' atau 'nama-cluster.txt' sesuai pola file Anda
+*.txt
+

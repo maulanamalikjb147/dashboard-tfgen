@@ -1,0 +1,56 @@
+.cluster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.cluster-card {
+  background-color: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.cluster-name {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  font-size: 1.25rem;
+  border-bottom: 1px solid #e9ecef;
+  padding-bottom: 0.75rem;
+}
+
+.instance-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.instance-list li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #f1f3f5;
+}
+
+.instance-list li:last-child {
+  border-bottom: none;
+}
+
+.cluster-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #e9ecef;
+  padding-bottom: 0.75rem;
+  margin-bottom: 1rem;
+}
+.cluster-card-header .cluster-name {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+/* Menggunakan kembali style dari InstanceList.css */
+.action-btn { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; font-size: 0.9rem; border-radius: 6px; border: 1px solid #ced4da; background-color: #fff; cursor: pointer; transition: all 0.2s; }
+.action-btn:hover:not(:disabled) { background-color: #f1f3f5; border-color: #adb5bd; }
+.action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.action-btn.danger { color: #dc3545; border-color: #dc3545; }
+.action-btn.danger:hover:not(:disabled) { background-color: #dc3545; color: #fff; }

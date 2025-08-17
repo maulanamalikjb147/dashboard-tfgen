@@ -1,0 +1,27 @@
+.ip-list-container {
+  margin-top: 2rem;
+  background-color: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ip-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ip-table th, .ip-table td {
+  padding: 1rem;
+  text-align: left;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.ip-table th {
+  background-color: #f8f9fa;
+  font-weight: 600;
+}
+
+.ip-table tbody tr:last-child td {
+  border-bottom: none;
+}
