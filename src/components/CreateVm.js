@@ -8,7 +8,7 @@ const API_BASE_URL = `http://${SERVER_IP}:5000`;
 
 const CreateVm = ({ onCreationSuccess }) => {
   const [osImages, setOsImages] = useState([]);
-  const [formData, setFormData] = useState({ ip: '', hostname: '', os: '', cpu: '2', disk: '50', memory: '4' });
+  const [formData, setFormData] = useState({ ip: '', hostname: '', os: '', cpu: '', disk: '', memory: '' });
   const [isCreating, setIsCreating] = useState(false);
   const [logs, setLogs] = useState([]);
   const [activeLogKey, setActiveLogKey] = useState(null);

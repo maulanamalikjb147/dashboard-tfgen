@@ -9,7 +9,7 @@ const CreateCluster = ({ onCreationSuccess }) => {
   const [osImages, setOsImages] = useState([]);
   const [clusterName, setClusterName] = useState('');
   const [instances, setInstances] = useState([
-    { hostname: '', ip: '', os: '', cpu: '2', disk: '50', memory: '4' }
+    { hostname: '', ip: '', os: '', cpu: '', disk: '', memory: '' }
   ]);
   const [isCreating, setIsCreating] = useState(false);
   const [logs, setLogs] = useState([]);
